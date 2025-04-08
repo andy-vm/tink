@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"os"
 	"strings"
 	"time"
 
-	dockercli "github.com/docker/docker/client"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/pkg/errors"
@@ -63,20 +61,15 @@ func NewRootCommand(version string) *cobra.Command {
 			}
 			workflowClient := proto.NewWorkflowServiceClient(conn)
 
-			dockerClient, err := dockercli.NewClientWithOpts(dockercli.FromEnv, dockercli.WithAPIVersionNegotiation())
-			if err != nil {
-				return err
-			}
-			containerManager := worker.NewContainerManager(
+			containerManager := worker.NewContainerdManager(
 				logger,
-				dockerClient,
 				worker.RegistryConnDetails{
 					Registry: registry,
 					Username: user,
 					Password: pwd,
 				})
 
-			logCapturer := worker.NewDockerLogCapturer(dockerClient, logger, os.Stdout)
+			logCapturer := worker.NewContainerdLogCapturer()
 
 			w := worker.NewWorker(
 				workerID,
