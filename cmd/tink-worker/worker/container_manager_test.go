@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	containertypes "github.com/docker/docker/api/types/container"
 	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -51,7 +52,7 @@ func (c *fakeDockerClient) ContainerCreate(
 	}, nil
 }
 
-func (c *fakeDockerClient) ContainerStart(context.Context, string, types.ContainerStartOptions) error {
+func (c *fakeDockerClient) ContainerStart(context.Context, string, container.StartOptions) error {
 	if c.err != nil {
 		return c.err
 	}
@@ -81,7 +82,7 @@ func (c *fakeDockerClient) ContainerWait(context.Context, string, containertypes
 	return respChan, errChan
 }
 
-func (c *fakeDockerClient) ContainerRemove(context.Context, string, types.ContainerRemoveOptions) error {
+func (c *fakeDockerClient) ContainerRemove(context.Context, string, container.RemoveOptions) error {
 	if c.err != nil {
 		return c.err
 	}
