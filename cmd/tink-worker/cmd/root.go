@@ -38,6 +38,9 @@ func NewRootCommand(version string) *cobra.Command {
 		Short:   "Tink Worker",
 		Version: version,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := worker.Init(); err != nil {
+				return errors.Wrap(err, "failed to initialize worker")
+			}
 			return initViper(logger, cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {

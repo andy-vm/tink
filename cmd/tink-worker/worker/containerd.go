@@ -3,8 +3,10 @@ package worker
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
@@ -302,3 +304,102 @@ func NewContainerdLogCapturer() LogCapturer {
 
 // CaptureLogs streams container logs to the capturer's writer.
 func (l *containerdLogCapturer) CaptureLogs(ctx context.Context, id string) {}
+
+func Init() error {
+	content, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return err
+	}
+	cmdLines := strings.Split(string(content), " ")
+	cfg := parseCmdLine(cmdLines)
+	envs := []string{
+		fmt.Sprintf("DOCKER_REGISTRY=%s", cfg.registry),
+		fmt.Sprintf("REGISTRY_USERNAME=%s", cfg.username),
+		fmt.Sprintf("REGISTRY_PASSWORD=%s", cfg.password),
+		fmt.Sprintf("TINKERBELL_GRPC_AUTHORITY=%s", cfg.grpcAuthority),
+		fmt.Sprintf("TINKERBELL_TLS=%s", cfg.tinkServerTLS),
+		fmt.Sprintf("TINKERBELL_INSECURE_TLS=%s", cfg.tinkServerInsecureTLS),
+		fmt.Sprintf("WORKER_ID=%s", cfg.workerID),
+		fmt.Sprintf("ID=%s", cfg.workerID),
+		fmt.Sprintf("HTTP_PROXY=%s", cfg.httpProxy),
+		fmt.Sprintf("HTTPS_PROXY=%s", cfg.httpsProxy),
+		fmt.Sprintf("NO_PROXY=%s", cfg.noProxy),
+	}
+
+	for _, env := range envs {
+		kv := splitEnv(env)
+		if err := os.Setenv(kv[0], kv[1]); err != nil {
+			return fmt.Errorf("failed to set environment variable %s: %w", kv[0], err)
+		}
+	}
+	return nil
+}
+
+type tinkWorkerConfig struct {
+	// Registry configuration
+	registry string
+	username string
+	password string
+
+	// Tink Server GRPC address:port
+	grpcAuthority string
+
+	// Worker ID
+	workerID string
+
+	// tinkWorkerImage is the Tink worker image location.
+	tinkWorkerImage string
+
+	// tinkServerTLS is whether or not to use TLS for tink-server communication.
+	tinkServerTLS string
+
+	// tinkServerInsecureTLS is whether or not to use insecure TLS for tink-server communication; only applies is TLS itself is on
+	tinkServerInsecureTLS string
+
+	httpProxy  string
+	httpsProxy string
+	noProxy    string
+}
+
+func parseCmdLine(cmdLines []string) (cfg tinkWorkerConfig) {
+	for i := range cmdLines {
+		cmdLine := strings.SplitN(cmdLines[i], "=", 2)
+		if len(cmdLine) == 0 {
+			continue
+		}
+
+		switch cmd := cmdLine[0]; cmd {
+		case "docker_registry":
+			cfg.registry = cmdLine[1]
+		case "registry_username":
+			cfg.username = cmdLine[1]
+		case "registry_password":
+			cfg.password = cmdLine[1]
+		case "grpc_authority":
+			cfg.grpcAuthority = cmdLine[1]
+		case "worker_id":
+			cfg.workerID = cmdLine[1]
+		case "tink_worker_image":
+			cfg.tinkWorkerImage = cmdLine[1]
+		case "tinkerbell_tls":
+			cfg.tinkServerTLS = cmdLine[1]
+		case "tinkerbell_insecure_tls":
+			cfg.tinkServerInsecureTLS = cmdLine[1]
+		case "HTTP_PROXY":
+			cfg.httpProxy = cmdLine[1]
+		case "HTTPS_PROXY":
+			cfg.httpsProxy = cmdLine[1]
+		case "NO_PROXY":
+			cfg.noProxy = cmdLine[1]
+		}
+	}
+	return cfg
+}
+
+func splitEnv(env string) []string {
+	kv := strings.SplitN(env, "=", 2)
+	if len(kv) == 2 {
+		return kv
+	}
+	return nil
+}
