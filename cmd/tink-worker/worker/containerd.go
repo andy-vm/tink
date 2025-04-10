@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -13,8 +12,6 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/remotes/docker"
-	"github.com/containers/image/v5/pkg/shortnames"
-	"github.com/containers/image/v5/types"
 	"github.com/go-logr/logr"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -62,7 +59,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	// set up a containerd namespace
 	ctx = namespaces.WithNamespace(ctx, c.namespace)
 
-	imageName := path.Join(c.registryDetails.Registry, action.GetImage())
+	imageName := action.GetImage()
 	image, err := c.pullImage(ctx, imageName)
 	if err != nil {
 		return "", err
@@ -136,32 +133,28 @@ func (c *containerdManager) pullImage(ctx context.Context, imageName string) (co
 	l := c.logger.WithValues("image", imageName)
 	l.Info("pulling image")
 
-	r, err := shortnames.Resolve(&types.SystemContext{PodmanOnlyShortNamesIgnoreRegistriesConfAndForceDockerHub: true}, imageName)
-	if err != nil {
-		l.Info("unable to resolve image fully qualified name", "error", err)
-	}
-	if r != nil && len(r.PullCandidates) > 0 {
-		imageName = r.PullCandidates[0].Value.String()
-	}
-
 	image, err := c.client.GetImage(ctx, imageName)
 	if err != nil {
-		// Create a resolver with authentication details
-		resolver := docker.NewResolver(docker.ResolverOptions{
-			Hosts: func(host string) ([]docker.RegistryHost, error) {
-				return []docker.RegistryHost{
-					{
-						Host: c.registryDetails.Registry,
-						Authorizer: docker.NewDockerAuthorizer(docker.WithAuthCreds(func(host string) (string, string, error) {
-							return c.registryDetails.Username, c.registryDetails.Password, nil
-						})),
-						Capabilities: docker.HostCapabilityPull,
-					},
-				}, nil
-			},
-		})
+		opts := []containerd.RemoteOpt{containerd.WithPullUnpack}
+		if c.registryDetails.Registry != "" {
+			// Create a resolver with authentication details
+			resolver := docker.NewResolver(docker.ResolverOptions{
+				Hosts: func(host string) ([]docker.RegistryHost, error) {
+					return []docker.RegistryHost{
+						{
+							Host: c.registryDetails.Registry,
+							Authorizer: docker.NewDockerAuthorizer(docker.WithAuthCreds(func(host string) (string, string, error) {
+								return c.registryDetails.Username, c.registryDetails.Password, nil
+							})),
+							Capabilities: docker.HostCapabilityPull,
+						},
+					}, nil
+				},
+			})
+			opts = append(opts, containerd.WithResolver(resolver))
+		}
 		// if the image is not in namespaced context, then pull it
-		image, err = c.client.Pull(ctx, imageName, containerd.WithPullUnpack, containerd.WithResolver(resolver))
+		image, err = c.client.Pull(ctx, imageName, opts...)
 		if err != nil {
 			return image, fmt.Errorf("error pulling image: %w", err)
 		}
