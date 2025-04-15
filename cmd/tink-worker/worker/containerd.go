@@ -356,6 +356,9 @@ func Init() error {
 	if err := EnsureFolder("/worker"); err != nil {
 		return err
 	}
+	if err := EnsureFolder("/lib/firmware"); err != nil {
+		return err
+	}
 	content, err := os.ReadFile("/proc/cmdline")
 	if err != nil {
 		return err
