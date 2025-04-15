@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
@@ -67,7 +69,47 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 
 	// Prepare workflow directory and mounts
 	wfDir := filepath.Join(defaultDataDir, wfID)
+	if err := EnsureFolder(wfDir); err != nil {
+		return "", err
+	}
+
 	mounts := []specs.Mount{
+		{
+			Source:      "/etc/resolv.conf",
+			Destination: "/etc/resolv.conf",
+			Type:        "bind",
+			Options:     []string{"rbind", "ro"},
+		},
+		{
+			Source:      "/lib/modules",
+			Destination: "/lib/modules",
+			Type:        "bind",
+			Options:     []string{"rbind"},
+		},
+		{
+			Source:      "/dev",
+			Destination: "/dev",
+			Type:        "bind",
+			Options:     []string{"rbind"},
+		},
+		{
+			Source:      "/dev/console",
+			Destination: "/dev/console",
+			Type:        "bind",
+			Options:     []string{"rbind"},
+		},
+		{
+			Source:      "/lib/firmware",
+			Destination: "/lib/firmware",
+			Type:        "bind",
+			Options:     []string{"rbind", "ro"},
+		},
+		{
+			Source:      "/worker",
+			Destination: "/worker",
+			Type:        "bind",
+			Options:     []string{"rbind"},
+		},
 		{
 			Source:      wfDir,
 			Destination: "/workflow",
@@ -110,11 +152,17 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	}
 
 	name := makeValidContainerName(fmt.Sprintf("%s-%s", wfID, action.GetName()))
+	snp := containerd.WithNewSnapshot(name, image)
+	_, err = c.client.SnapshotService(containerd.DefaultSnapshotter).Stat(ctx, name)
+	if err == nil {
+		l.Info("snapshot exists, reusing snapshot", "snapshot", name)
+		snp = containerd.WithSnapshot(name)
+	}
 	container, err := c.client.NewContainer(
 		ctx,
 		name,
 		containerd.WithSnapshotter(containerd.DefaultSnapshotter),
-		containerd.WithNewSnapshot(name, image),
+		snp,
 		containerd.WithNewSpec(opts...),
 		// containerd.WithImage(image),
 	)
@@ -303,6 +351,11 @@ func NewContainerdLogCapturer() LogCapturer {
 func (l *containerdLogCapturer) CaptureLogs(ctx context.Context, id string) {}
 
 func Init() error {
+	go rebootWatch()
+
+	if err := EnsureFolder("/worker"); err != nil {
+		return err
+	}
 	content, err := os.ReadFile("/proc/cmdline")
 	if err != nil {
 		return err
@@ -330,6 +383,60 @@ func Init() error {
 		}
 	}
 	return nil
+}
+
+func EnsureFolder(folder string) error {
+	// Check if the folder exists
+	info, err := os.Stat(folder)
+	if os.IsNotExist(err) {
+		// Folder does not exist, create it with 755 permissions
+		err := os.Mkdir(folder, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to create %s folder: %w", folder, err)
+		}
+		fmt.Printf("%s folder created with 755 permissions", folder)
+	} else if err != nil {
+		// Other errors (permission issues)
+		return fmt.Errorf("error checking %s folder: %w", folder, err)
+	} else if !info.IsDir() {
+		// Path exists but is not a directory
+		return fmt.Errorf("%s exists but is not a directory", folder)
+	} else {
+		fmt.Printf("%s folder already exists", folder)
+	}
+
+	return nil
+}
+
+func rebootWatch() {
+	fmt.Println("Starting Reboot Watcher")
+
+	// Forever loop
+	for {
+		if fileExists("/worker/reboot") {
+			cmd := exec.Command("/sbin/reboot")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err := cmd.Run()
+			if err != nil {
+				fmt.Printf("error calling /sbin/reboot: %v\n", err)
+				time.Sleep(time.Second)
+				continue
+			}
+			break
+		}
+		// Wait one second before looking for file
+		time.Sleep(time.Second)
+	}
+	fmt.Println("Rebooting")
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
 }
 
 type tinkWorkerConfig struct {
