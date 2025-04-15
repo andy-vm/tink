@@ -89,10 +89,13 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	// Create the container specification
 	opts := []oci.SpecOpts{
 		oci.WithImageConfig(image),
-		oci.WithProcessArgs(cmd...),
 		oci.WithEnv(action.GetEnvironment()),
 		oci.WithMounts(mounts),
 		oci.WithCapabilities([]string{"CAP_SYS_ADMIN"}),
+	}
+
+	if len(cmd) > 0 {
+		opts = append(opts, oci.WithProcessArgs(cmd...))
 	}
 
 	if privileged {
