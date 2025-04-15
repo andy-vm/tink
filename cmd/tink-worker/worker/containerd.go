@@ -110,9 +110,10 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	container, err := c.client.NewContainer(
 		ctx,
 		name,
-		containerd.WithNewSpec(opts...),
-		containerd.WithImage(image),
+		containerd.WithSnapshotter(containerd.DefaultSnapshotter),
 		containerd.WithNewSnapshot(name, image),
+		containerd.WithNewSpec(opts...),
+		// containerd.WithImage(image),
 	)
 	if err != nil {
 		return "", errors.Wrap(err, "CONTAINERD CREATE")
