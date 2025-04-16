@@ -90,31 +90,31 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 			Source:      "/dev",
 			Destination: "/dev",
 			Type:        "bind",
-			Options:     []string{"rbind"},
+			Options:     []string{"rbind", "rw"},
 		},
 		{
 			Source:      "/dev/console",
 			Destination: "/dev/console",
 			Type:        "bind",
-			Options:     []string{"rbind"},
+			Options:     []string{"rbind", "rw"},
 		},
 		{
 			Source:      "/lib/firmware",
 			Destination: "/lib/firmware",
 			Type:        "bind",
-			Options:     []string{"rbind", "ro"},
+			Options:     []string{"rbind", "rw"},
 		},
 		{
 			Source:      "/worker",
 			Destination: "/worker",
 			Type:        "bind",
-			Options:     []string{"rbind"},
+			Options:     []string{"rbind", "rw"},
 		},
 		{
 			Source:      wfDir,
 			Destination: "/workflow",
 			Type:        "bind",
-			Options:     []string{"rbind"},
+			Options:     []string{"rbind", "rw"},
 		},
 	}
 
@@ -135,6 +135,8 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		oci.WithMounts(mounts),
 		oci.WithCapabilities([]string{"CAP_SYS_ADMIN"}),
 		oci.WithHostNamespace(specs.NetworkNamespace),
+		oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices,
+		// oci.WithDevices("/dev", "", "rwm"),
 	}
 
 	if len(cmd) > 0 {
@@ -142,7 +144,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	}
 
 	if privileged {
-		opts = append(opts, oci.WithPrivileged)
+		// opts = append(opts, oci.WithPrivileged)
 	}
 
 	if pidConfig := action.GetPid(); pidConfig != "" {
@@ -257,20 +259,20 @@ func (c *containerdManager) StartContainer(ctx context.Context, id string) error
 		return errors.Wrap(err, "CONTAINERD TASK CREATE")
 	}
 
-	resources := &specs.LinuxResources{
-		Devices: []specs.LinuxDeviceCgroup{
-			{
-				Allow:  true,  // Allow access to devices
-				Access: "rwm", // Read, write, and mknod permissions
-				Type:   "a",   // Apply to all device types
-				Major:  nil,   // Wildcard for all major numbers
-				Minor:  nil,   // Wildcard for all minor numbers
-			},
-		},
-	}
-	if err := task.Update(ctx, containerd.WithResources(resources)); err != nil {
-		return errors.Wrap(err, "CONTAINERD TASK UPDATE")
-	}
+	// resources := &specs.LinuxResources{
+	// 	Devices: []specs.LinuxDeviceCgroup{
+	// 		{
+	// 			Allow:  true,  // Allow access to devices
+	// 			Access: "rwm", // Read, write, and mknod permissions
+	// 			Type:   "a",   // Apply to all device types
+	// 			Major:  nil,   // Wildcard for all major numbers
+	// 			Minor:  nil,   // Wildcard for all minor numbers
+	// 		},
+	// 	},
+	// }
+	// if err := task.Update(ctx, containerd.WithResources(resources)); err != nil {
+	// 	return errors.Wrap(err, "CONTAINERD TASK UPDATE")
+	// }
 
 	// Start the task
 	if err := task.Start(ctx); err != nil {
