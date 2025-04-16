@@ -84,7 +84,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 			Source:      "/lib/modules",
 			Destination: "/lib/modules",
 			Type:        "bind",
-			Options:     []string{"rbind"},
+			Options:     []string{"rbind", "ro"},
 		},
 		{
 			Source:      "/dev",
@@ -134,6 +134,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		oci.WithEnv(action.GetEnvironment()),
 		oci.WithMounts(mounts),
 		oci.WithCapabilities([]string{"CAP_SYS_ADMIN"}),
+		oci.WithHostNamespace(specs.NetworkNamespace),
 	}
 
 	if len(cmd) > 0 {
@@ -152,17 +153,18 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	}
 
 	name := makeValidContainerName(fmt.Sprintf("%s-%s", wfID, action.GetName()))
-	snp := containerd.WithNewSnapshot(name, image)
-	_, err = c.client.SnapshotService(containerd.DefaultSnapshotter).Stat(ctx, name)
-	if err == nil {
-		l.Info("snapshot exists, reusing snapshot", "snapshot", name)
-		snp = containerd.WithSnapshot(name)
+	snps := c.client.SnapshotService(containerd.DefaultSnapshotter)
+	if _, err := snps.Stat(ctx, name); err == nil {
+		l.Info("snapshot exists, removing snapshot", "snapshot", name)
+		if err := snps.Remove(ctx, name); err != nil {
+			l.Error(err, "failed to delete snapshot", "snapshot", name)
+		}
 	}
 	container, err := c.client.NewContainer(
 		ctx,
 		name,
 		containerd.WithSnapshotter(containerd.DefaultSnapshotter),
-		snp,
+		containerd.WithNewSnapshot(name, image),
 		containerd.WithNewSpec(opts...),
 		// containerd.WithImage(image),
 	)
@@ -253,6 +255,21 @@ func (c *containerdManager) StartContainer(ctx context.Context, id string) error
 	task, err := container.NewTask(ctx, cio.NewCreator(cio.WithStdio))
 	if err != nil {
 		return errors.Wrap(err, "CONTAINERD TASK CREATE")
+	}
+
+	resources := &specs.LinuxResources{
+		Devices: []specs.LinuxDeviceCgroup{
+			{
+				Allow:  true,  // Allow access to devices
+				Access: "rwm", // Read, write, and mknod permissions
+				Type:   "a",   // Apply to all device types
+				Major:  nil,   // Wildcard for all major numbers
+				Minor:  nil,   // Wildcard for all minor numbers
+			},
+		},
+	}
+	if err := task.Update(ctx, containerd.WithResources(resources)); err != nil {
+		return errors.Wrap(err, "CONTAINERD TASK UPDATE")
 	}
 
 	// Start the task
