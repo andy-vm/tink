@@ -80,18 +80,6 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 			Type:        "bind",
 			Options:     []string{"rbind", "ro"},
 		},
-		// {
-		// 	Source:      "/dev",
-		// 	Destination: "/dev",
-		// 	Type:        "bind",
-		// 	Options:     []string{"rbind", "rw"},
-		// },
-		// {
-		// 	Source:      "/dev/console",
-		// 	Destination: "/dev/console",
-		// 	Type:        "bind",
-		// 	Options:     []string{"rbind", "rw"},
-		// },
 		{
 			Source:      "/lib/firmware",
 			Destination: "/lib/firmware",
@@ -135,9 +123,9 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		oci.WithHostNamespace(specs.NetworkNamespace),
 		oci.WithHostHostsFile,
 		oci.WithHostResolvconf,
+		oci.WithHostLocaltime,
 		oci.WithEnv([]string{fmt.Sprintf("HOSTNAME=%s", hostname)}),
 		oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices,
-		// oci.WithDevices("/dev", "", "rwm"),
 		// oci.Compose(oci.WithoutMounts(dests...), oci.WithMounts(mounts)),
 	}
 
@@ -150,10 +138,11 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	}
 
 	if pidConfig := action.GetPid(); pidConfig != "" {
-		opts = append(opts, oci.WithLinuxNamespace(specs.LinuxNamespace{
-			Type: specs.PIDNamespace,
-			Path: pidConfig,
-		}))
+		opts = append(opts, oci.WithHostNamespace(specs.PIDNamespace))
+		// opts = append(opts, oci.WithLinuxNamespace(specs.LinuxNamespace{
+		// 	Type: specs.PIDNamespace,
+		// 	Path: pidConfig,
+		// }))
 	}
 
 	name := makeValidContainerName(fmt.Sprintf("%s-%s", wfID, action.GetName()))
