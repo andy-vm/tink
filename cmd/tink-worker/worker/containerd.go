@@ -14,6 +14,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/remotes/docker"
+	volumemounts "github.com/docker/docker/volume/mounts"
 	"github.com/go-logr/logr"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -23,6 +24,18 @@ import (
 var (
 	_ ContainerManager = (*containerdManager)(nil)
 	_ LogCapturer      = (*containerdLogCapturer)(nil)
+
+	mountExcluded = []string{
+		"/dev",
+		"/worker",
+		"/lib/modules",
+		"/lib/firmware",
+		"/workflow",
+		"/etc/hosts",
+		"/etc/resolv.conf",
+		"/etc/localtime",
+	}
+	parser = volumemounts.NewLinuxParser()
 )
 
 const (
@@ -101,13 +114,14 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	}
 
 	// Add additional volumes from the action
-	for _, volume := range action.GetVolumes() {
-		mounts = append(mounts, specs.Mount{
-			Source:      volume,
-			Destination: volume,
-			Type:        "bind",
-			Options:     []string{"rbind"},
-		})
+	avs, err := parseVolumes(action.GetVolumes())
+	if err != nil {
+		return "", errors.Wrap(err, "failed to parse volumes")
+	}
+	for _, mount := range avs {
+		if isValidDst(mount.Destination) {
+			mounts = append(mounts, mount)
+		}
 	}
 
 	hostname, err := os.Hostname()
@@ -519,4 +533,36 @@ func splitEnv(env string) []string {
 		return kv
 	}
 	return nil
+}
+
+func isValidDst(dst string) bool {
+	for _, excluded := range mountExcluded {
+		if strings.HasPrefix(dst, excluded) {
+			return false
+		}
+	}
+	return true
+}
+
+func parseVolumes(volumes []string) ([]specs.Mount, error) {
+	var mounts []specs.Mount
+	for _, volume := range volumes {
+		mp, err := parser.ParseMountRaw(volume, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse volume %s: %w", volume, err)
+		}
+		m := specs.Mount{
+			Source:      mp.Spec.Source,
+			Destination: mp.Spec.Target,
+			Type:        string(mp.Spec.Type),
+			Options:     []string{"rbind"},
+		}
+		if mp.Spec.ReadOnly {
+			m.Options = append(m.Options, "ro")
+		} else {
+			m.Options = append(m.Options, "rw")
+		}
+		mounts = append(mounts, m)
+	}
+	return mounts, nil
 }
