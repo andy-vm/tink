@@ -75,29 +75,23 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 
 	mounts := []specs.Mount{
 		{
-			Source:      "/etc/resolv.conf",
-			Destination: "/etc/resolv.conf",
-			Type:        "bind",
-			Options:     []string{"rbind", "ro"},
-		},
-		{
 			Source:      "/lib/modules",
 			Destination: "/lib/modules",
 			Type:        "bind",
 			Options:     []string{"rbind", "ro"},
 		},
-		{
-			Source:      "/dev",
-			Destination: "/dev",
-			Type:        "bind",
-			Options:     []string{"rbind", "rw"},
-		},
-		{
-			Source:      "/dev/console",
-			Destination: "/dev/console",
-			Type:        "bind",
-			Options:     []string{"rbind", "rw"},
-		},
+		// {
+		// 	Source:      "/dev",
+		// 	Destination: "/dev",
+		// 	Type:        "bind",
+		// 	Options:     []string{"rbind", "rw"},
+		// },
+		// {
+		// 	Source:      "/dev/console",
+		// 	Destination: "/dev/console",
+		// 	Type:        "bind",
+		// 	Options:     []string{"rbind", "rw"},
+		// },
 		{
 			Source:      "/lib/firmware",
 			Destination: "/lib/firmware",
@@ -128,6 +122,10 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		})
 	}
 
+	hostname, err := os.Hostname()
+	if err != nil {
+		l.Error(err, "failed to get hostname")
+	}
 	// Create the container specification
 	opts := []oci.SpecOpts{
 		oci.WithImageConfig(image),
@@ -135,8 +133,12 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		oci.WithMounts(mounts),
 		oci.WithCapabilities([]string{"CAP_SYS_ADMIN"}),
 		oci.WithHostNamespace(specs.NetworkNamespace),
+		oci.WithHostHostsFile,
+		oci.WithHostResolvconf,
+		oci.WithEnv([]string{fmt.Sprintf("HOSTNAME=%s", hostname)}),
 		oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices,
 		// oci.WithDevices("/dev", "", "rwm"),
+		// oci.Compose(oci.WithoutMounts(dests...), oci.WithMounts(mounts)),
 	}
 
 	if len(cmd) > 0 {
@@ -168,7 +170,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		containerd.WithSnapshotter(containerd.DefaultSnapshotter),
 		containerd.WithNewSnapshot(name, image),
 		containerd.WithNewSpec(opts...),
-		// containerd.WithImage(image),
+		containerd.WithImage(image),
 	)
 	if err != nil {
 		return "", errors.Wrap(err, "CONTAINERD CREATE")
