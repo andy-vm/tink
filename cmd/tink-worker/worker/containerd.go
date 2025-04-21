@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/containerd/containerd"
@@ -137,10 +138,9 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		oci.WithHostNamespace(specs.NetworkNamespace),
 		oci.WithHostHostsFile,
 		oci.WithHostResolvconf,
-		oci.WithHostLocaltime,
+		// oci.WithHostLocaltime,
 		oci.WithEnv([]string{fmt.Sprintf("HOSTNAME=%s", hostname)}),
 		oci.WithPrivileged, oci.WithAllDevicesAllowed, oci.WithHostDevices,
-		// oci.Compose(oci.WithoutMounts(dests...), oci.WithMounts(mounts)),
 	}
 
 	if len(cmd) > 0 {
@@ -153,10 +153,6 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 
 	if pidConfig := action.GetPid(); pidConfig != "" {
 		opts = append(opts, oci.WithHostNamespace(specs.PIDNamespace))
-		// opts = append(opts, oci.WithLinuxNamespace(specs.LinuxNamespace{
-		// 	Type: specs.PIDNamespace,
-		// 	Path: pidConfig,
-		// }))
 	}
 
 	name := makeValidContainerName(fmt.Sprintf("%s-%s", wfID, action.GetName()))
@@ -235,6 +231,25 @@ func (c *containerdManager) RemoveContainer(ctx context.Context, id string) erro
 	container, err := c.client.LoadContainer(ctx, id)
 	if err != nil {
 		return errors.Wrap(err, "failed to load container")
+	}
+
+	task, err := container.Task(ctx, nil)
+	if err == nil { // Task exists
+		status, err := task.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get task status: %w", err)
+		}
+
+		if status.Status == containerd.Running {
+			if err := task.Kill(ctx, syscall.SIGKILL); err != nil {
+				return fmt.Errorf("failed to kill task: %w", err)
+			}
+		}
+
+		_, err = task.Delete(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to delete task: %w", err)
+		}
 	}
 
 	// delete the container
