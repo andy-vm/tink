@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,12 +37,14 @@ var (
 		"/etc/resolv.conf",
 		"/etc/localtime",
 	}
-	parser = volumemounts.NewLinuxParser()
+	parser  = volumemounts.NewLinuxParser()
+	randGen = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 const (
-	namespace  = "tinkerbell"
-	socketPath = "/run/containerd/containerd.sock"
+	namespace   = "tinkerbell"
+	socketPath  = "/run/containerd/containerd.sock"
+	letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 type containerdManager struct {
@@ -155,7 +158,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		opts = append(opts, oci.WithHostNamespace(specs.PIDNamespace))
 	}
 
-	name := makeValidContainerName(fmt.Sprintf("%s-%s", wfID, action.GetName()))
+	name := newContainerName(action.GetName())
 	snps := c.client.SnapshotService(containerd.DefaultSnapshotter)
 	if _, err := snps.Stat(ctx, name); err == nil {
 		l.Info("snapshot exists, removing snapshot", "snapshot", name)
@@ -390,8 +393,6 @@ func NewContainerdLogCapturer() LogCapturer {
 func (l *containerdLogCapturer) CaptureLogs(ctx context.Context, id string) {}
 
 func Init() error {
-	go rebootWatch()
-
 	if err := EnsureFolder("/worker"); err != nil {
 		return err
 	}
@@ -424,6 +425,8 @@ func Init() error {
 			return fmt.Errorf("failed to set environment variable %s: %w", kv[0], err)
 		}
 	}
+
+	go rebootWatch()
 	return nil
 }
 
@@ -580,4 +583,23 @@ func parseVolumes(volumes []string) ([]specs.Mount, error) {
 		mounts = append(mounts, m)
 	}
 	return mounts, nil
+}
+
+func truncateStr(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen]
+	}
+	return s
+}
+
+func randStr(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[randGen.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
+
+func newContainerName(name string) string {
+	return fmt.Sprintf("%s-%s", truncateStr(name, 60), randStr(10))
 }
