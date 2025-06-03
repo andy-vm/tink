@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"slices"
+
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
@@ -28,6 +30,9 @@ var (
 	_ LogCapturer      = (*containerdLogCapturer)(nil)
 
 	mountExcluded = []string{
+		"/mnt",
+		"/sys",
+		"/dev/console",
 		"/dev",
 		"/worker",
 		"/lib/modules",
@@ -106,12 +111,6 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		{
 			Source:      "/mnt",
 			Destination: "/mnt",
-			Type:        "bind",
-			Options:     []string{"rbind", "rw"},
-		},
-		{
-			Source:      "/dev/nbd0",
-			Destination: "/dev/nbd0",
 			Type:        "bind",
 			Options:     []string{"rbind", "rw"},
 		},
@@ -586,12 +585,7 @@ func splitEnv(env string) []string {
 }
 
 func isValidDst(dst string) bool {
-	for _, excluded := range mountExcluded {
-		if strings.HasPrefix(dst, excluded) {
-			return false
-		}
-	}
-	return true
+	return !slices.Contains(mountExcluded, dst)
 }
 
 func parseVolumes(volumes []string) ([]specs.Mount, error) {
