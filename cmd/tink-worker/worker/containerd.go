@@ -134,6 +134,8 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	}
 	// Create the container specification
 	opts := []oci.SpecOpts{
+		oci.WithDefaultSpec(),
+		oci.WithDefaultUnixDevices,
 		oci.WithImageConfig(image),
 		oci.WithEnv(action.GetEnvironment()),
 		oci.WithMounts(mounts),
