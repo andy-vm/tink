@@ -92,6 +92,36 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 
 	mounts := []specs.Mount{
 		{
+			Destination: "/sys",
+			Source:      "/sys",
+			Type:        "sysfs",
+			Options:     []string{"rbind", "rw"},
+		},
+		{
+			Source:      "/dev",
+			Destination: "/dev",
+			Type:        "bind",
+			Options:     []string{"rbind", "rw"},
+		},
+		{
+			Source:      "/mnt",
+			Destination: "/mnt",
+			Type:        "bind",
+			Options:     []string{"rbind", "rw"},
+		},
+		{
+			Source:      "/dev/nbd0",
+			Destination: "/dev/nbd0",
+			Type:        "bind",
+			Options:     []string{"rbind", "rw"},
+		},
+		{
+			Source:      "/dev/console",
+			Destination: "/dev/console",
+			Type:        "bind",
+			Options:     []string{"rbind", "rw"},
+		},
+		{
 			Source:      "/lib/modules",
 			Destination: "/lib/modules",
 			Type:        "bind",
