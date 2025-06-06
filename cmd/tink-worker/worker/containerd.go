@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Intel Corporation
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package worker
 
 import (
@@ -7,11 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
-
-	"slices"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
@@ -76,7 +79,8 @@ func NewContainerdManager(logger logr.Logger, registryDetails RegistryConnDetail
 
 // CreateContainer implements ContainerManager.
 func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, wfID string, action *proto.WorkflowAction,
-	captureLogs bool, privileged bool) (string, error) {
+	_ bool, _ bool,
+) (string, error) {
 	l := c.logger.WithValues("action", action.GetName(), "workflowID", wfID)
 	l.Info("creating container", "command", cmd)
 
@@ -84,7 +88,7 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 	ctx = namespaces.WithNamespace(ctx, c.namespace)
 
 	imageName := action.GetImage()
-	image, err := c.pullImage(ctx, imageName)
+	image, err := c.pullImageByName(ctx, imageName)
 	if err != nil {
 		return "", err
 	}
@@ -181,10 +185,6 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 		opts = append(opts, oci.WithProcessArgs(cmd...))
 	}
 
-	if privileged {
-		// opts = append(opts, oci.WithPrivileged)
-	}
-
 	if pidConfig := action.GetPid(); pidConfig != "" {
 		opts = append(opts, oci.WithHostNamespace(specs.PIDNamespace))
 	}
@@ -216,11 +216,11 @@ func (c *containerdManager) CreateContainer(ctx context.Context, cmd []string, w
 func (c *containerdManager) PullImage(ctx context.Context, imageName string) error {
 	// set up a containerd namespace
 	ctx = namespaces.WithNamespace(ctx, c.namespace)
-	_, err := c.pullImage(ctx, imageName)
+	_, err := c.pullImageByName(ctx, imageName)
 	return err
 }
 
-func (c *containerdManager) pullImage(ctx context.Context, imageName string) (containerd.Image, error) {
+func (c *containerdManager) pullImageByName(ctx context.Context, imageName string) (containerd.Image, error) {
 	l := c.logger.WithValues("image", imageName)
 	l.Info("pulling image")
 
@@ -230,11 +230,11 @@ func (c *containerdManager) pullImage(ctx context.Context, imageName string) (co
 		if c.registryDetails.Registry != "" {
 			// Create a resolver with authentication details
 			resolver := docker.NewResolver(docker.ResolverOptions{
-				Hosts: func(host string) ([]docker.RegistryHost, error) {
+				Hosts: func(_ string) ([]docker.RegistryHost, error) {
 					return []docker.RegistryHost{
 						{
 							Host: c.registryDetails.Registry,
-							Authorizer: docker.NewDockerAuthorizer(docker.WithAuthCreds(func(host string) (string, string, error) {
+							Authorizer: docker.NewDockerAuthorizer(docker.WithAuthCreds(func(_ string) (string, string, error) {
 								return c.registryDetails.Username, c.registryDetails.Password, nil
 							})),
 							Capabilities: docker.HostCapabilityPull,
@@ -421,7 +421,7 @@ func NewContainerdLogCapturer() LogCapturer {
 }
 
 // CaptureLogs streams container logs to the capturer's writer.
-func (l *containerdLogCapturer) CaptureLogs(ctx context.Context, id string) {}
+func (l *containerdLogCapturer) CaptureLogs(_ context.Context, _ string) {}
 
 func Init() error {
 	if err := EnsureFolder("/worker"); err != nil {
@@ -464,10 +464,9 @@ func Init() error {
 func EnsureFolder(folder string) error {
 	// Check if the folder exists
 	info, err := os.Stat(folder)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(err) { //nolint:gocritic // ignore ifElseChain
 		// Folder does not exist, create it with 755 permissions
-		err := os.Mkdir(folder, 0755)
-		if err != nil {
+		if err := os.Mkdir(folder, 0o755); err != nil {
 			return fmt.Errorf("failed to create %s folder: %w", folder, err)
 		}
 		fmt.Printf("%s folder created with 755 permissions", folder)
@@ -544,7 +543,7 @@ type tinkWorkerConfig struct {
 func parseCmdLine(cmdLines []string) (cfg tinkWorkerConfig) {
 	for i := range cmdLines {
 		cmdLine := strings.SplitN(cmdLines[i], "=", 2)
-		if len(cmdLine) == 0 {
+		if len(cmdLine) < 2 {
 			continue
 		}
 
@@ -627,5 +626,6 @@ func randStr(n int) string {
 }
 
 func newContainerName(name string) string {
+	// max length is 76 in containerd.
 	return fmt.Sprintf("%s-%s", truncateStr(name, 60), randStr(10))
 }
